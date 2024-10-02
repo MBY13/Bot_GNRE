@@ -5,6 +5,7 @@ __pycache__/
 
 # C extensions
 *.so
+tabela_dados.json
 
 # Distribution / packaging
 .Python

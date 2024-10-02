@@ -1,3 +1,4 @@
+from unidecode import unidecode
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
@@ -12,29 +13,60 @@ class TabelaExtractor:
     def __init__(self, driver):
         self.driver = driver
 
-    def extract_table_data(self):
-        """Método para extrair dados da tabela usando JavaScript e filtrar linhas não relevantes."""
+    def normalize_text(self, text):
+        """Remove acentos e troca 'ç' por 'c'."""
+        return unidecode(text)
+
+    def extract_table_data(self, estado_nome):
+        """Método para extrair dados da tabela com cabeçalhos das colunas e adicionar o estado como coluna."""
         try:
             table_data = self.driver.execute_script("""
                 let rows = document.querySelectorAll('#tblContent tr');
                 let data = [];
-                rows.forEach(row => {
-                    let cells = row.querySelectorAll('td');
-                    let rowData = [];
-                    cells.forEach(cell => {
-                        rowData.push(cell.innerText.trim());
-                    });
-                    // Verifica se a linha contém dados relevantes
-                    if (rowData.length > 0 && !rowData[0].includes('Registros') && rowData[0] !== '') {
-                        data.push(rowData);
+                let headers = [];
+                
+                // Extrair cabeçalhos da tabela
+                let headerRow = rows[0];
+                headerRow.querySelectorAll('th').forEach(header => {
+                    headers.push(header.innerText.trim());
+                });
+                
+                // Adiciona "Estado" como coluna
+                headers.push('Estado');
+                
+                // Extrair dados das linhas da tabela
+                rows.forEach((row, rowIndex) => {
+                    if (rowIndex > 0) {  // Ignora a linha de cabeçalhos
+                        let cells = row.querySelectorAll('td');
+                        let rowData = {};
+                        cells.forEach((cell, cellIndex) => {
+                            rowData[headers[cellIndex]] = cell.innerText.trim();  // Associa o valor à coluna correspondente
+                        });
+                        // Adiciona o estado à linha
+                        rowData['Estado'] = arguments[0];
+                        
+                        // Verifica se a linha contém dados relevantes
+                        if (Object.keys(rowData).length > 0 && !rowData[headers[0]].includes('Registros') && rowData[headers[0]] !== '') {
+                            data.push(rowData);
+                        }
                     }
                 });
                 return data;
-            """)
-            return table_data
+            """, estado_nome)  # Passa o nome do estado como argumento para o script JavaScript
+            
+            # Normaliza os cabeçalhos e os dados extraídos
+            normalized_headers = [self.normalize_text(header) for header in table_data[0].keys()]
+            normalized_data = [
+                {self.normalize_text(k): self.normalize_text(v) if isinstance(v, str) else v for k, v in row.items()}
+                for row in table_data
+            ]
+            
+            return normalized_data
         except Exception as e:
             print(f"Erro ao extrair dados via JavaScript: {e}")
             return []
+
+# O restante do código GNREBot permanece o mesmo
 
 class JsonExporter:
     @staticmethod
@@ -53,9 +85,9 @@ class GNREBot:
         self.options = webdriver.ChromeOptions()
         self.driver = webdriver.Chrome(service=self.service, options=self.options)
         self.data = {
-            "Receitas": {},
+            # "Receitas": {},
             "Detalhamento das Receitas": {},
-            "Produtos": {},
+            # "Produtos": {},
             "Documentos de Origem": {},
             "Campos Adicionais": {}
         }
@@ -66,9 +98,9 @@ class GNREBot:
 
     def clicar_e_processar_links(self):
         links_text = [
-            'Receitas',
+            # 'Receitas',
             'Detalhamento das Receitas',
-            'Produtos',
+            # 'Produtos',
             'Documentos de Origem',
             'Campos Adicionais'
         ]
@@ -124,9 +156,13 @@ class GNREBot:
             )
             print(f"Tabela encontrada para o estado {estado_nome} na categoria {categoria}")
             time.sleep(5)
-            table_data = self.extractor.extract_table_data()
+            table_data = self.extractor.extract_table_data(estado_nome)  # Passa o nome do estado
             if table_data:
-                self.data[categoria][estado_nome] = table_data
+                # Verifica se a categoria existe e é uma lista, caso contrário, cria uma lista vazia
+                if not isinstance(self.data[categoria], list):
+                    self.data[categoria] = []
+                # Adiciona os dados extraídos na lista
+                self.data[categoria].extend(table_data)
             else:
                 print(f"Nenhum dado relevante encontrado na tabela para o estado {estado_nome} na categoria {categoria}.")
             time.sleep(2)
